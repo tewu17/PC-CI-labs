@@ -27,8 +27,8 @@ jobs:
         run: bash ./files/malwareCheck.sh
         
           
-      #- name: Deploy evilpetclinic app
-        #run: bash files/exec.sh deploy.sh
+      - name: Deploy evilpetclinic app
+        run: bash files/exec.sh deploy.sh
         
       #- name: Runtime attacks
         #run: bash files/exec.sh runtime_attacks.sh
