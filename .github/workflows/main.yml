@@ -1,37 +1,50 @@
-name: Prisma Cloud Shift Left demo
-on: [ push,pull_request ]
 
+name: Cortex CLI Code Scan
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
+  CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
+  CORTEX_API_URL: https://api-clico-cortex-cloud.xdr.pl.paloaltonetworks.com
+  CORTEX_CLI_VERSION: 0.12.0
+  
 jobs:
-  prisma_cloud_job:
+  cortex-code-scan:
     runs-on: ubuntu-latest
-    name: Run Prisma Cloud steps 
-    env:
-          TL_USER: ${{ secrets.TL_USER }}
-          TL_PASS: ${{ secrets.TL_PASS }}
-          TL_CONSOLE: ${{ secrets.TL_CONSOLE }} 
+
     steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v2
     
-      - name: Checkout
-        uses: actions/checkout@v2
-        
+    - name: Get Temporary Token
+      run: |
+        TOKEN_RESPONSE=$(curl --location "${CORTEX_API_URL}/public_api/v1/unified-cli/image/token" \
+          --header "Authorization: ${CORTEX_API_KEY}" \
+          --header "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
+          --header 'Content-Type: application/json' \
+          --data '{}')
+        TEMP_TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.token')
+        echo "TEMP_TOKEN=$TEMP_TOKEN" >> $GITHUB_ENV
 
-      - name: twistcli download
-        run: curl -s -k -u $TL_USER:$TL_PASS "https://$TL_CONSOLE/api/v1/util/twistcli" -v -o twistcli;chmod +x twistcli
+    - name: Pull Docker Image
+      run: |
+        docker pull distributions.traps.paloaltonetworks.com/cli-docker/${{env.TEMP_TOKEN}}/method:amd64-${{env.CORTEX_CLI_VERSION}}
+        docker tag distributions.traps.paloaltonetworks.com/cli-docker/${{env.TEMP_TOKEN}}/method:amd64-${{env.CORTEX_CLI_VERSION}} cortexcli:${{env.CORTEX_CLI_VERSION}}
 
-    
-      - name: Scan Image for vulnerabilities
-        run: bash ./files/scanImage.sh
-   
-      
-      - name: Scan Image for Malware using Wildfire
-        run: bash ./files/malwareCheck.sh
-        
-          
-      - name: Deploy evilpetclinic app
-        run: bash files/exec.sh deploy.sh
-        
-      #- name: Runtime attacks
-        #run: bash files/exec.sh runtime_attacks.sh
-          
-      #- name: WAAS attacks
-       # run: bash files/exec.sh waas_attacks.sh
+    - name: Run Docker Container
+      run: |
+        docker run --rm -v ${{ github.workspace }}:/home/code cortexcli:${{ env.CORTEX_CLI_VERSION }} \
+          --api-base-url ${CORTEX_API_URL} \
+          --api-key ${CORTEX_API_KEY} \
+          --api-key-id ${CORTEX_API_KEY_ID} \
+          code scan \
+          --directory /home/code \
+          --repo-id ${{github.repository}} \
+          --branch ${{github.ref_name}} \
+          --source 'GITHUB_ACTIONS' \
+          --create-repo-if-missing
